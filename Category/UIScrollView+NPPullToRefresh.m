@@ -131,10 +131,17 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
 
 + (void)load {
     swizzleMethod([self class], @selector(setContentOffset:), @selector(np_setContentOffset:));
+    swizzleMethod([self class], NSSelectorFromString(@"dealloc"), @selector(np_dealloc));
 }
 
-- (void)dealloc {
-    [self.panGestureRecognizer removeObserver:self forKeyPath:@"state"];
+- (void)np_dealloc {
+    [self np_dealloc];
+    
+    @try {
+        [self.panGestureRecognizer removeObserver:self forKeyPath:@"state"];
+    } @catch (NSException *exception) {
+        NSLog(@"exception:%@",exception);
+    }
 }
 
 - (void)np_setContentOffset:(CGPoint)contentOffset {
@@ -214,7 +221,11 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
         [self.pullToRefreshView removeFromSuperview];
         objc_setAssociatedObject(self, @selector(pullToRefreshView), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         
-        [self.panGestureRecognizer removeObserver:self forKeyPath:@"state"];
+        @try {
+            [self.panGestureRecognizer removeObserver:self forKeyPath:@"state"];
+        } @catch (NSException *exception) {
+            NSLog(@"exception:%@",exception);
+        }
     }
 }
 
@@ -224,9 +235,7 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
     UIGestureRecognizerState state = [change[NSKeyValueChangeNewKey] integerValue];
     switch (state) {
         case UIGestureRecognizerStateBegan:
-        {
             [self setInitialContentInset:self.contentInset];
-        }
             break;
         case UIGestureRecognizerStateEnded:
         {
