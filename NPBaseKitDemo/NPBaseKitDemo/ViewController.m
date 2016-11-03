@@ -10,9 +10,11 @@
 #import "NPCommonDefines.h"
 #import "UIScrollView+NPPullToRefresh.h"
 #import "UIScrollView+NPLoadMore.h"
+#import "UIScrollView+NPLoadMore.h"
 
-@interface ViewController ()<UITableViewDelegate,UITableViewDataSource,NSPullToRefreshDelegate>{
+@interface ViewController ()<UITableViewDelegate,UITableViewDataSource,NSPullToRefreshDelegate,NSLoadMoreDelegate>{
     UITableView *_tableView;
+    NSInteger _numberOfTimes;
 }
 
 @end
@@ -21,6 +23,8 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    
+    _numberOfTimes = 1;
     
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -31,6 +35,8 @@
     [_tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"cell"];
     [_tableView setPullToRefreshDelegate:self];
     [_tableView setPullToRefreshEnabled:YES];
+    [_tableView setLoadMoreEnabled:YES];
+    [_tableView setLoadMoreDelegate:self];
     [self.view addSubview:_tableView];
     
     UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, SCREEN_WIDTH, 64)];
@@ -41,6 +47,16 @@
 - (void)pullToRefreshWillBegin:(UIScrollView *)scrollView {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [_tableView scrollViewDidEndRefresh];
+        _numberOfTimes = 1;
+        [_tableView reloadData];
+    });
+}
+
+- (void)loadMoreWillBegin:(UIScrollView *)scrollView {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        _numberOfTimes += 1;
+        [_tableView reloadData];
+        [_tableView scrollViewDidEndLoadMore];
     });
 }
 
@@ -49,7 +65,7 @@
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return 50;
+    return 20*_numberOfTimes;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {

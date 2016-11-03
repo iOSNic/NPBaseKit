@@ -19,6 +19,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		049C1C6D1DC7358F0014D951 /* NPLoadMoreViewProtocol.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NPLoadMoreViewProtocol.h; sourceTree = "<group>"; };
 		04B39DCE1DC3666E00149A81 /* NPBaseKitDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NPBaseKitDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		04B39DD21DC3666E00149A81 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		04B39DD41DC3666E00149A81 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
@@ -96,10 +97,11 @@
 			isa = PBXGroup;
 			children = (
 				04B39DF61DC368BC00149A81 /* NPPullToRefreshViewProtocol.h */,
-				04B39DF71DC368BC00149A81 /* UIScrollView+NPLoadMore.h */,
-				04B39DF81DC368BC00149A81 /* UIScrollView+NPLoadMore.m */,
+				049C1C6D1DC7358F0014D951 /* NPLoadMoreViewProtocol.h */,
 				04B39DF91DC368BC00149A81 /* UIScrollView+NPPullToRefresh.h */,
 				04B39DFA1DC368BC00149A81 /* UIScrollView+NPPullToRefresh.m */,
+				04B39DF71DC368BC00149A81 /* UIScrollView+NPLoadMore.h */,
+				04B39DF81DC368BC00149A81 /* UIScrollView+NPLoadMore.m */,
 			);
 			name = Category;
 			path = ../Category;

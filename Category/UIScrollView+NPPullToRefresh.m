@@ -19,7 +19,7 @@ static CGFloat const NPPullToRefreshViewActivityIndicatorViewHeight = 20.f;
 
 static NSString * const NPPullToRefreshViewDefaultPullToRefreshTip = @"下拉可以刷新";
 static NSString * const NPPullToRefreshViewDefaultReleaseToRefreshTip = @"释放即可刷新";
-static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新";
+static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新...";
 
 @interface NPPullToRefreshView : UIView<NPPullToRefreshViewProtocol>
 
@@ -127,10 +127,20 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
 
 @end
 
+@implementation NPPullToRefreshObserver
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context {
+    if (self.delegate && [self.delegate respondsToSelector:@selector(npPullToRefresh_observeValueForKeyPath:ofObject:change:context:)]) {
+        [self.delegate npPullToRefresh_observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+    }
+}
+
+@end
+
 @implementation UIScrollView (NPPullToRefresh)
 
 + (void)load {
-    swizzleMethod([self class], @selector(setContentOffset:), @selector(np_setContentOffset:));
+    swizzleMethod([self class], @selector(setContentOffset:), @selector(npPullToRefresh_setContentOffset:));
     swizzleMethod([self class], NSSelectorFromString(@"dealloc"), @selector(np_dealloc));
 }
 
@@ -138,15 +148,23 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
     [self np_dealloc];
     
     @try {
-        [self.panGestureRecognizer removeObserver:self forKeyPath:@"state"];
+        [self.panGestureRecognizer removeObserver:self.pullToRefreshObserver forKeyPath:@"state"];
     } @catch (NSException *exception) {
         NSLog(@"exception:%@",exception);
     }
+    
+    objc_setAssociatedObject(self, @selector(pullToRefreshViewClass), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(pullToRefreshView), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(pullToRefreshObserver), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(initialContentInset), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(pullToRefreshEnabled), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(pullToRefreshDelegate), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-- (void)np_setContentOffset:(CGPoint)contentOffset {
-    [self np_setContentOffset:contentOffset];
+- (void)npPullToRefresh_setContentOffset:(CGPoint)contentOffset {
+    [self npPullToRefresh_setContentOffset:contentOffset];
     
+    if (!self.pullToRefreshEnabled) return;
     if (!self.pullToRefreshView || ![self.pullToRefreshView respondsToSelector:@selector(setState:)] || ![self.pullToRefreshView respondsToSelector:@selector(state)]) return;
     if (self.pullToRefreshView.state == NPPullToRefreshViewStateRefreshing) return;
     
@@ -176,15 +194,21 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
     if (!pullToRefreshView) {
         pullToRefreshView = [[self.pullToRefreshViewClass alloc] init];
         pullToRefreshView.backgroundColor = [UIColor clearColor];
-        pullToRefreshView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         objc_setAssociatedObject(self, @selector(pullToRefreshView), pullToRefreshView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     
     return  pullToRefreshView;
 }
 
-- (void)setInitialContentInset:(UIEdgeInsets)initialContentInset {
-    objc_setAssociatedObject(self, @selector(initialContentInset), [NSValue valueWithUIEdgeInsets:initialContentInset], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+- (NPPullToRefreshObserver *)pullToRefreshObserver {
+    NPPullToRefreshObserver *pullToRefreshObserver = objc_getAssociatedObject(self, @selector(pullToRefreshObserver));
+    if (!pullToRefreshObserver) {
+        pullToRefreshObserver = [[NPPullToRefreshObserver alloc] init];
+        pullToRefreshObserver.delegate = self;
+        objc_setAssociatedObject(self, @selector(pullToRefreshObserver), pullToRefreshObserver, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    
+    return pullToRefreshObserver;
 }
 
 - (UIEdgeInsets)initialContentInset {
@@ -194,12 +218,12 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
     return insets;
 }
 
-- (id<NSPullToRefreshDelegate>)pullToRefreshDelegate {
-    return objc_getAssociatedObject(self, @selector(pullToRefreshDelegate));
+- (void)setInitialContentInset:(UIEdgeInsets)initialContentInset {
+    objc_setAssociatedObject(self, @selector(initialContentInset), [NSValue valueWithUIEdgeInsets:initialContentInset], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-- (void)setPullToRefreshDelegate:(id<NSPullToRefreshDelegate>)pullToRefreshDelegate {
-    objc_setAssociatedObject(self, @selector(pullToRefreshDelegate), pullToRefreshDelegate, OBJC_ASSOCIATION_ASSIGN);
+- (BOOL)pullToRefreshEnabled {
+    return [objc_getAssociatedObject(self, @selector(pullToRefreshEnabled)) boolValue];
 }
 
 - (void)setPullToRefreshEnabled:(BOOL)enabled {
@@ -209,12 +233,14 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
 - (void)setPullToRefreshEnabled:(BOOL)enabled pullToRefreshViewClass:(Class <NPPullToRefreshViewProtocol> )viewClass {
     objc_setAssociatedObject(self, @selector(pullToRefreshViewClass), viewClass && [viewClass.class isSubclassOfClass:[UIView class]] && [viewClass.class conformsToProtocol:@protocol(NPPullToRefreshViewProtocol)]?viewClass:[NPPullToRefreshView class], OBJC_ASSOCIATION_ASSIGN);
     
+    objc_setAssociatedObject(self, @selector(pullToRefreshEnabled), [NSNumber numberWithBool:enabled], OBJC_ASSOCIATION_ASSIGN);
+    
     if (enabled) {
         if (self.pullToRefreshView.superview) return;
         self.pullToRefreshView.frame = CGRectMake(0, -[self heightOfPullToRefreshView], CGRectGetWidth(self.bounds), [self heightOfPullToRefreshView]);
         [self addSubview:self.pullToRefreshView];
         
-        [self.panGestureRecognizer addObserver:self forKeyPath:@"state" options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld context:nil];
+        [self.panGestureRecognizer addObserver:self.pullToRefreshObserver forKeyPath:@"state" options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld context:nil];
     }
     else {
         if (!self.pullToRefreshView || !self.pullToRefreshView.superview) return;
@@ -222,14 +248,15 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
         objc_setAssociatedObject(self, @selector(pullToRefreshView), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         
         @try {
-            [self.panGestureRecognizer removeObserver:self forKeyPath:@"state"];
+            [self.panGestureRecognizer removeObserver:self.pullToRefreshObserver forKeyPath:@"state"];
         } @catch (NSException *exception) {
             NSLog(@"exception:%@",exception);
         }
     }
 }
 
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context {
+- (void)npPullToRefresh_observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context {
+    if (!self.pullToRefreshEnabled) return;
     if (![keyPath isEqualToString:@"state"]) return;
     if (self.pullToRefreshView.state == NPPullToRefreshViewStateRefreshing) return;
     UIGestureRecognizerState state = [change[NSKeyValueChangeNewKey] integerValue];
@@ -253,6 +280,14 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
         default:
             break;
     }
+}
+
+- (id<NSPullToRefreshDelegate>)pullToRefreshDelegate {
+    return objc_getAssociatedObject(self, @selector(pullToRefreshDelegate));
+}
+
+- (void)setPullToRefreshDelegate:(id<NSPullToRefreshDelegate>)pullToRefreshDelegate {
+    objc_setAssociatedObject(self, @selector(pullToRefreshDelegate), pullToRefreshDelegate, OBJC_ASSOCIATION_ASSIGN);
 }
 
 - (void)setPullToRefreshTip:(NSString *)tip {

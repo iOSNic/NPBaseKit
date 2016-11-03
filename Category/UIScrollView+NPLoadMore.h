@@ -7,7 +7,23 @@
 //
 
 #import <UIKit/UIKit.h>
+#import "NPLoadMoreViewProtocol.h"
+
+@protocol NSLoadMoreDelegate <UIScrollViewDelegate>
+
+- (void)loadMoreWillBegin:(UIScrollView *)scrollView;
+
+@end
 
 @interface UIScrollView (NPLoadMore)
+
+- (void)setLoadMoreEnabled:(BOOL)enabled;
+- (void)setLoadMoreEnabled:(BOOL)enabled loadMoreViewClass:(Class <NPLoadMoreViewProtocol> )viewClass;
+
+- (void)setLoadMoreDelegate:(id<NSLoadMoreDelegate>)delegate;
+- (void)scrollViewDidEndLoadMore; // You should call this method after loading more did end.
+
+- (void)setLoadingMoreTip:(NSString *)tip;
+- (void)setNoMoreTip:(NSString *)tip;
 
 @end
