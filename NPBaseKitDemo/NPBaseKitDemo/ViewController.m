@@ -10,9 +10,8 @@
 #import "NPCommonDefines.h"
 #import "UIScrollView+NPPullToRefresh.h"
 #import "UIScrollView+NPLoadMore.h"
-#import "UIScrollView+NPLoadMore.h"
 
-@interface ViewController ()<UITableViewDelegate,UITableViewDataSource,NSPullToRefreshDelegate,NSLoadMoreDelegate>{
+@interface ViewController ()<UITableViewDelegate,UITableViewDataSource,NSPullToRefreshDelegate,NSPLoadMoreDelegate>{
     UITableView *_tableView;
     NSInteger _numberOfTimes;
 }
@@ -30,6 +29,7 @@
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.delegate = self;
     _tableView.dataSource = self;
+    _tableView.tableFooterView = [UIView new];
     [_tableView setContentInset:UIEdgeInsetsMake(64, 0, 0, 0)];
     [_tableView setScrollIndicatorInsets:UIEdgeInsetsMake(64, 0, 0, 0)];
     [_tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"cell"];
@@ -46,7 +46,7 @@
 
 - (void)pullToRefreshWillBegin:(UIScrollView *)scrollView {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [_tableView scrollViewDidEndRefresh];
+        [_tableView refreshDidEnd];
         _numberOfTimes = 1;
         [_tableView reloadData];
     });
@@ -56,7 +56,7 @@
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         _numberOfTimes += 1;
         [_tableView reloadData];
-        [_tableView scrollViewDidEndLoadMore];
+        [_tableView loadMoreDidEnd];
     });
 }
 
@@ -65,7 +65,7 @@
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return 20*_numberOfTimes;
+    return 15*_numberOfTimes;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {

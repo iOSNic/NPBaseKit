@@ -7,6 +7,7 @@
 //
 
 #import "UIScrollView+NPPullToRefresh.h"
+#import "UIScrollView+NPLoadMore.h"
 #import "NPCommonDefines.h"
 #import "NPUtil.h"
 #import <objc/runtime.h>
@@ -156,9 +157,9 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
     objc_setAssociatedObject(self, @selector(pullToRefreshViewClass), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, @selector(pullToRefreshView), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, @selector(pullToRefreshObserver), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(self, @selector(initialContentInset), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(initialRefreshContentInset), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, @selector(pullToRefreshEnabled), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(self, @selector(pullToRefreshDelegate), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(pullToRefreshDelegate), nil, OBJC_ASSOCIATION_ASSIGN);
 }
 
 - (void)npPullToRefresh_setContentOffset:(CGPoint)contentOffset {
@@ -166,7 +167,7 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
     
     if (!self.pullToRefreshEnabled) return;
     if (!self.pullToRefreshView || ![self.pullToRefreshView respondsToSelector:@selector(setState:)] || ![self.pullToRefreshView respondsToSelector:@selector(state)]) return;
-    if (self.pullToRefreshView.state == NPPullToRefreshViewStateRefreshing) return;
+    if ([self isLoading]) return;
     
     if (contentOffset.y > -([self heightOfPullToRefreshView] + self.contentInset.top)) {
         self.pullToRefreshView.state = NPPullToRefreshViewStateNormal;
@@ -211,15 +212,15 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
     return pullToRefreshObserver;
 }
 
-- (UIEdgeInsets)initialContentInset {
+- (UIEdgeInsets)initialRefreshContentInset {
     UIEdgeInsets insets = UIEdgeInsetsZero;
-    insets = [objc_getAssociatedObject(self, @selector(initialContentInset)) UIEdgeInsetsValue];
+    insets = [objc_getAssociatedObject(self, @selector(initialRefreshContentInset)) UIEdgeInsetsValue];
     
     return insets;
 }
 
-- (void)setInitialContentInset:(UIEdgeInsets)initialContentInset {
-    objc_setAssociatedObject(self, @selector(initialContentInset), [NSValue valueWithUIEdgeInsets:initialContentInset], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+- (void)setInitialRefreshContentInset:(UIEdgeInsets)initialRefreshContentInset {
+    objc_setAssociatedObject(self, @selector(initialRefreshContentInset), [NSValue valueWithUIEdgeInsets:initialRefreshContentInset], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 - (BOOL)pullToRefreshEnabled {
@@ -231,9 +232,9 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
 }
 
 - (void)setPullToRefreshEnabled:(BOOL)enabled pullToRefreshViewClass:(Class <NPPullToRefreshViewProtocol> )viewClass {
-    objc_setAssociatedObject(self, @selector(pullToRefreshViewClass), viewClass && [viewClass.class isSubclassOfClass:[UIView class]] && [viewClass.class conformsToProtocol:@protocol(NPPullToRefreshViewProtocol)]?viewClass:[NPPullToRefreshView class], OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(self, @selector(pullToRefreshViewClass), viewClass && [viewClass.class isSubclassOfClass:[UIView class]] && [viewClass.class conformsToProtocol:@protocol(NPPullToRefreshViewProtocol)]?viewClass:[NPPullToRefreshView class], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     
-    objc_setAssociatedObject(self, @selector(pullToRefreshEnabled), [NSNumber numberWithBool:enabled], OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(self, @selector(pullToRefreshEnabled), [NSNumber numberWithBool:enabled], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     
     if (enabled) {
         if (self.pullToRefreshView.superview) return;
@@ -258,11 +259,11 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
 - (void)npPullToRefresh_observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context {
     if (!self.pullToRefreshEnabled) return;
     if (![keyPath isEqualToString:@"state"]) return;
-    if (self.pullToRefreshView.state == NPPullToRefreshViewStateRefreshing) return;
+    if ([self isLoading]) return;
     UIGestureRecognizerState state = [change[NSKeyValueChangeNewKey] integerValue];
     switch (state) {
         case UIGestureRecognizerStateBegan:
-            [self setInitialContentInset:self.contentInset];
+            [self setInitialRefreshContentInset:self.contentInset];
             break;
         case UIGestureRecognizerStateEnded:
         {
@@ -280,6 +281,10 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
         default:
             break;
     }
+}
+
+- (BOOL)isLoading {
+    return self.pullToRefreshView.state == NPPullToRefreshViewStateRefreshing || self.loadMoreView.state == NPLoadMoreViewStateLoadingMore;
 }
 
 - (id<NSPullToRefreshDelegate>)pullToRefreshDelegate {
@@ -308,11 +313,11 @@ static NSString * const NPPullToRefreshViewDefaultRefreshingTip = @"正在刷新
     }
 }
 
-- (void)scrollViewDidEndRefresh {
+- (void)refreshDidEnd {
     self.pullToRefreshView.state = NPPullToRefreshViewStateFinished;
     
     [UIView animateWithDuration:.25 animations:^{
-        self.contentInset = self.initialContentInset;
+        self.contentInset = self.initialRefreshContentInset;
     }];
 }
 

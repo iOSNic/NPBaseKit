@@ -7,6 +7,7 @@
 //
 
 #import "UIScrollView+NPLoadMore.h"
+#import "UIScrollView+NPPullToRefresh.h"
 #import "NPCommonDefines.h"
 #import "NPUtil.h"
 #import <objc/runtime.h>
@@ -46,13 +47,13 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
         _activityIndicatorView.hidesWhenStopped = YES;
         [self addSubview:_activityIndicatorView];
         
-        _titleLabel = [[UILabel alloc] initWithFrame:self.bounds];
+        _titleLabel = [[UILabel alloc] init];
         _titleLabel.backgroundColor = [UIColor clearColor];
         _titleLabel.textAlignment = NSTextAlignmentCenter;
         _titleLabel.font = [UIFont systemFontOfSize:NPLoadMoreViewTitleFontSize];
         [self addSubview:_titleLabel];
         
-        [self setState:NPLoadMoreViewStateLoadingMore];
+        [self setState:NPLoadMoreViewStateInitial];
     }
     
     return self;
@@ -87,6 +88,14 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
 
 - (void)updateUI {
     switch (self.state) {
+        case NPLoadMoreViewStateInitial:
+            {
+                [_activityIndicatorView stopAnimating];
+                _activityIndicatorView.frame = CGRectZero;
+                _titleLabel.text = nil;
+                _titleLabel.frame = self.bounds;
+            }
+            break;
         case NPLoadMoreViewStateLoadingMore:
             {
                 _activityIndicatorView.frame = CGRectMake(0, 0, NPLoadMoreViewActivityIndicatorViewWidth, NPLoadMoreViewActivityIndicatorViewHeight);
@@ -110,11 +119,22 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
 
 @end
 
+@implementation NPLoadMoreObserver
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context {
+    if (self.delegate && [self.delegate respondsToSelector:@selector(npLoadMore_observeValueForKeyPath:ofObject:change:context:)]) {
+        [self.delegate npLoadMore_observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+    }
+}
+
+@end
+
 @implementation UIScrollView (NPLoadMore)
 
 + (void)load {
     swizzleMethod([self class], @selector(setContentSize:), @selector(np_setContentSize:));
     swizzleMethod([self class], @selector(setContentOffset:), @selector(npLoadMore_setContentOffset:));
+    swizzleMethod([self class], @selector(refreshDidEnd), @selector(np_refreshDidEnd));
     swizzleMethod([self class], NSSelectorFromString(@"dealloc"), @selector(np_dealloc));
 }
 
@@ -123,9 +143,15 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
 
     objc_setAssociatedObject(self, @selector(loadMoreViewClass), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, @selector(loadMoreView), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(self, @selector(initialContentInset), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(initialLoadMoreContentInset), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self, @selector(loadMoreEnabled), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(self, @selector(loadMoreDelegate), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, @selector(loadMoreDelegate), nil, OBJC_ASSOCIATION_ASSIGN);
+    
+    @try {
+        [self.panGestureRecognizer removeObserver:self.loadMoreObserver forKeyPath:@"state"];
+    } @catch (NSException *exception) {
+        NSLog(@"exception:%@",exception);
+    }
 }
 
 
@@ -142,9 +168,10 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
     
     if (!self.loadMoreEnabled) return;
     if (self.contentInsetUpdated) return;
+    if ([self isLoading] || self.loadMoreView.state == NPLoadMoreViewStateNoMore) return;
     if (self.contentSize.height - contentOffset.y - CGRectGetHeight(self.bounds) <= 0) {
         [self setContentInsetUpdated:YES];
-        [self setInitialContentInset:self.contentInset];
+        [self setInitialLoadMoreContentInset:self.contentInset];
         
         self.contentInset = UIEdgeInsetsMake(self.contentInset.top, self.contentInset.left, self.contentInset.bottom + [self heightOfLoadMoreView], self.contentInset.right);
         
@@ -154,6 +181,13 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
             [self.loadMoreDelegate loadMoreWillBegin:self];
         }
     }
+}
+
+- (void)np_refreshDidEnd {
+    [self np_refreshDidEnd];
+    
+    [self loadMoreDidEnd];
+    objc_setAssociatedObject(self, @selector(loadMoreEnabled), [NSNumber numberWithBool:YES], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 - (CGFloat)heightOfLoadMoreView {
@@ -180,6 +214,17 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
     return  loadMoreView;
 }
 
+- (NPLoadMoreObserver *)loadMoreObserver {
+    NPLoadMoreObserver *loadMoreObserver = objc_getAssociatedObject(self, @selector(loadMoreObserver));
+    if (!loadMoreObserver) {
+        loadMoreObserver = [[NPLoadMoreObserver alloc] init];
+        loadMoreObserver.delegate = self;
+        objc_setAssociatedObject(self, @selector(loadMoreObserver), loadMoreObserver, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    
+    return loadMoreObserver;
+}
+
 - (BOOL)contentInsetUpdated {
     return [objc_getAssociatedObject(self, @selector(contentInsetUpdated)) boolValue];
 }
@@ -188,15 +233,15 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
     objc_setAssociatedObject(self, @selector(contentInsetUpdated), [NSNumber numberWithBool:contentInsetUpdated], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-- (UIEdgeInsets)initialContentInset {
+- (UIEdgeInsets)initialLoadMoreContentInset {
     UIEdgeInsets insets = UIEdgeInsetsZero;
-    insets = [objc_getAssociatedObject(self, @selector(initialContentInset)) UIEdgeInsetsValue];
+    insets = [objc_getAssociatedObject(self, @selector(initialLoadMoreContentInset)) UIEdgeInsetsValue];
     
     return insets;
 }
 
-- (void)setInitialContentInset:(UIEdgeInsets)initialContentInset {
-    objc_setAssociatedObject(self, @selector(initialContentInset), [NSValue valueWithUIEdgeInsets:initialContentInset], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+- (void)setInitialLoadMoreContentInset:(UIEdgeInsets)initialLoadMoreContentInset {
+    objc_setAssociatedObject(self, @selector(initialLoadMoreContentInset), [NSValue valueWithUIEdgeInsets:initialLoadMoreContentInset], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 - (BOOL)loadMoreEnabled {
@@ -208,27 +253,54 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
 }
 
 - (void)setLoadMoreEnabled:(BOOL)enabled loadMoreViewClass:(Class<NPLoadMoreViewProtocol>)viewClass {
-    objc_setAssociatedObject(self, @selector(loadMoreViewClass), viewClass && [viewClass.class isSubclassOfClass:[UIView class]] && [viewClass.class conformsToProtocol:@protocol(NPLoadMoreViewProtocol)]?viewClass:[NPLoadMoreView class], OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(self, @selector(loadMoreViewClass), viewClass && [viewClass.class isSubclassOfClass:[UIView class]] && [viewClass.class conformsToProtocol:@protocol(NPLoadMoreViewProtocol)]?viewClass:[NPLoadMoreView class], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     
-    objc_setAssociatedObject(self, @selector(loadMoreEnabled), [NSNumber numberWithBool:enabled], OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(self, @selector(loadMoreEnabled), [NSNumber numberWithBool:enabled], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     
     if (enabled) {
         if (self.loadMoreView.superview) return;
         self.loadMoreView.frame = CGRectMake(0, self.contentSize.height, CGRectGetWidth(self.bounds), [self heightOfLoadMoreView]);
         [self addSubview:self.loadMoreView];
+        [self bringSubviewToFront:self.loadMoreView];
+        
+        [self.panGestureRecognizer addObserver:self.loadMoreObserver forKeyPath:@"state" options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld context:nil];
     }
     else {
         if (!self.loadMoreView || !self.loadMoreView.superview) return;
         [self.loadMoreView removeFromSuperview];
         objc_setAssociatedObject(self, @selector(loadMoreView), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        
+        @try {
+            [self.panGestureRecognizer removeObserver:self.loadMoreObserver forKeyPath:@"state"];
+        } @catch (NSException *exception) {
+            NSLog(@"exception:%@",exception);
+        }
     }
 }
 
-- (id<NSLoadMoreDelegate>)loadMoreDelegate {
+- (void)npLoadMore_observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context {
+    if (!self.loadMoreEnabled) return;
+    if (![keyPath isEqualToString:@"state"]) return;
+    if ([self isLoading] || self.loadMoreView.state == NPLoadMoreViewStateNoMore) return;
+    UIGestureRecognizerState state = [change[NSKeyValueChangeNewKey] integerValue];
+    switch (state) {
+        case UIGestureRecognizerStateBegan:
+            [self setInitialLoadMoreContentInset:self.contentInset];
+            break;
+        default:
+            break;
+    }
+}
+
+- (BOOL)isLoading {
+    return self.pullToRefreshView.state == NPPullToRefreshViewStateRefreshing  || self.loadMoreView.state == NPLoadMoreViewStateLoadingMore;
+}
+
+- (id<NSPLoadMoreDelegate>)loadMoreDelegate {
     return objc_getAssociatedObject(self, @selector(loadMoreDelegate));
 }
 
-- (void)setLoadMoreDelegate:(id<NSLoadMoreDelegate>)delegate {
+- (void)setLoadMoreDelegate:(id<NSPLoadMoreDelegate>)delegate {
     objc_setAssociatedObject(self, @selector(loadMoreDelegate), delegate, OBJC_ASSOCIATION_ASSIGN);
 }
 
@@ -244,9 +316,15 @@ static NSString * const NPLoadMoreViewDefaultNoMoreTip = @"没有更多内容";
     }
 }
 
-- (void)scrollViewDidEndLoadMore {
+- (void)loadMoreDidEnd {
     [self setContentInsetUpdated:NO];
-    self.contentInset = self.initialContentInset;
+    [self.loadMoreView setState:NPLoadMoreViewStateInitial];
+    self.contentInset = self.initialLoadMoreContentInset;
+}
+
+- (void)loadMoreDidEndWithNoMoreContent {
+    [self.loadMoreView setState:NPLoadMoreViewStateNoMore];
+    objc_setAssociatedObject(self, @selector(loadMoreEnabled), [NSNumber numberWithBool:NO], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 @end

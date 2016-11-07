@@ -7,6 +7,7 @@
 //
 
 typedef NS_ENUM(NSInteger, NPLoadMoreViewState) {
+    NPLoadMoreViewStateInitial,
     NPLoadMoreViewStateLoadingMore,
     NPLoadMoreViewStateNoMore
 };

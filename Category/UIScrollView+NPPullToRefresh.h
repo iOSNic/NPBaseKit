@@ -29,11 +29,13 @@
 
 @interface UIScrollView (NPPullToRefresh)<NPPullToRefreshObserverDelegate>
 
+- (UIView <NPPullToRefreshViewProtocol> *)pullToRefreshView;
+
 - (void)setPullToRefreshEnabled:(BOOL)enabled;
 - (void)setPullToRefreshEnabled:(BOOL)enabled pullToRefreshViewClass:(Class <NPPullToRefreshViewProtocol> )viewClass;
 
 - (void)setPullToRefreshDelegate:(id<NSPullToRefreshDelegate>)delegate;
-- (void)scrollViewDidEndRefresh; // You should calll this method after refreshing did end.
+- (void)refreshDidEnd; // You should calll this method after refreshing did end.
 
 - (void)setPullToRefreshTip:(NSString *)tip;
 - (void)setReleaseToRefreshTip:(NSString *)tip;
